@@ -32,3 +32,4 @@ credentials
 
 # Logs
 *.log
+.kiro/
