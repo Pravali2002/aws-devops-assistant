@@ -1,0 +1,143 @@
+AWS DEVOPS ASSISTANT - EXPLANATION
+===================================
+
+WHAT WE BUILT
+-------------
+A backend service where a developer types something like "create an S3 bucket"
+in plain English, and the system figures out what AWS action to run and actually runs it.
+
+The flow is:
+  User message -> FastAPI -> Bedrock (Claude) -> AWS tool -> response
+
+
+FILE BY FILE
+------------
+
+requirements.txt
+  Just the dependencies:
+  - fastapi + uvicorn  : the web server
+  - boto3              : AWS SDK for Python
+  - pydantic           : data validation for request/response shapes
+  - bedrock-agentcore  : needed only if you deploy to AgentCore later
+
+
+tools/aws_tools.py
+  This is where the actual AWS actions live. Each function does one thing:
+
+  - create_s3_bucket      : calls boto3 to create a bucket
+  - list_s3_buckets       : lists all buckets in your account
+  - get_cloudwatch_logs   : fetches recent log events from a CloudWatch log group
+  - generate_iam_policy   : builds a policy JSON (no AWS call, just constructs the JSON)
+  - list_lambda_functions : lists all Lambda functions
+
+  At the bottom there is a TOOL_REGISTRY dict:
+    TOOL_REGISTRY = { "create_s3_bucket": create_s3_bucket, ... }
+
+  This is a lookup table: string name -> actual function.
+  The router uses it to call the right tool by name.
+
+
+bedrock_client.py
+  This talks to Claude (via Amazon Bedrock). It sends the user's message along
+  with a system prompt that tells Claude:
+
+    "If the user wants an AWS action, respond with JSON like:
+     {"action": "create_s3_bucket", "params": {"bucket_name": "my-bucket"}}"
+
+    "If it is a question, just answer in plain text."
+
+  So Claude acts as the brain. It reads the natural language and decides
+  what tool to call and with what parameters.
+
+
+main.py  (the FastAPI app)
+  This is the entry point. It exposes one endpoint: POST /ask
+
+  Here is what happens when you send a message:
+    1. Your message hits /ask
+    2. It gets sent to ask_bedrock() — Claude reads it and responds
+    3. We try to parse the response as JSON
+       - If it parses as JSON  -> it is a tool call.
+         We look up the action in TOOL_REGISTRY and run it.
+       - If it does not parse  -> Claude gave a plain text answer (like an explanation).
+         We return that directly.
+
+  There is also a GET /tools endpoint that lists available tool names.
+
+
+agentcore_app.py
+  This is the same logic as main.py but wrapped for AgentCore deployment.
+  The key difference is the structure:
+
+    app = BedrockAgentCoreApp()
+
+    @app.entrypoint
+    def invoke(payload, context):
+        ...
+
+    if __name__ == "__main__":
+        app.run()
+
+  AgentCore expects this exact pattern. When you run "agentcore launch",
+  it packages this file, deploys it as a serverless container on AWS,
+  and gives you an endpoint you can call from anywhere — no server to manage.
+
+
+THE BIG PICTURE
+---------------
+
+  You type:  "create an S3 bucket named my-bucket"
+                |
+                v
+  FastAPI /ask receives it
+                |
+                v
+  Claude (Bedrock) reads it + system prompt
+  Claude responds: {"action": "create_s3_bucket", "params": {"bucket_name": "my-bucket"}}
+                |
+                v
+  main.py parses the JSON, looks up "create_s3_bucket" in TOOL_REGISTRY
+                |
+                v
+  boto3 actually creates the bucket on AWS
+                |
+                v
+  You get back: {"status": "success", "bucket": "my-bucket"}
+
+  If you ask something like "explain what a Lambda cold start is",
+  Claude just answers in plain text and no AWS action is taken.
+
+
+AGENTCORE (OPTIONAL)
+--------------------
+  The AgentCore part is optional. It is a way to deploy this same logic
+  as a managed, scalable service on AWS without running your own server.
+  You use "agentcore launch" instead of "uvicorn".
+
+  Deploy commands:
+    pip install bedrock-agentcore-starter-toolkit
+    agentcore configure --entrypoint devops_assistant/agentcore_app.py --region us-east-1
+    agentcore launch
+    agentcore invoke '{"prompt": "list my S3 buckets"}'
+
+
+HOW TO RUN LOCALLY
+------------------
+  pip install -r devops_assistant/requirements.txt
+  uvicorn devops_assistant.main:app --reload
+
+  Then send requests:
+    curl -X POST http://localhost:8000/ask \
+      -H "Content-Type: application/json" \
+      -d '{"message": "create an S3 bucket named my-devops-bucket-123"}'
+
+    curl -X POST http://localhost:8000/ask \
+      -H "Content-Type: application/json" \
+      -d '{"message": "generate an IAM policy for bedrock with InvokeModel access"}'
+
+PREREQUISITES
+-------------
+  - AWS credentials configured (run: aws configure)
+  - Bedrock model access enabled for:
+    anthropic.claude-3-sonnet-20240229-v1:0
+    in your AWS region

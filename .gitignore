@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# AWS credentials — NEVER commit these
+.aws/
+credentials
+*.pem
+*.key
+
+# Environment variables
+.env
+.env.*
+
+# AgentCore config (may contain account-specific ARNs)
+.bedrock_agentcore.yaml
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
