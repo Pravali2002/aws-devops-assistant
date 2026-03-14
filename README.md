@@ -288,3 +288,43 @@ curl -X POST http://localhost:8000/ask \
 ```
 
 **Tip:** If deploying to AWS ECS or EKS, attach an IAM role to the task/pod instead of passing credentials — that's the secure production approach.
+
+---
+
+## MCP Configuration (Kiro IDE only)
+
+I built this project using Kiro IDE with the Amazon Bedrock AgentCore MCP server configured.
+MCP (Model Context Protocol) is used by Kiro to give the AI assistant access to AgentCore documentation and tools during development — it is NOT used by the project code at runtime.
+
+There are two levels of MCP config in Kiro:
+
+- User config at `~/.kiro/settings/mcp.json` — personal to your machine, never committed to git
+- Workspace config at `.kiro/settings/mcp.json` — inside the project folder, can be committed
+
+The user config used during development had these MCP servers:
+- `bedrock-agentcore-mcp-server` — provided AgentCore docs and runtime management tools
+- `awslabs.sagemaker-ai-mcp-server` — provided SageMaker/HyperPod management tools
+- `fetch` — a general web fetch tool (disabled)
+
+If you are using Kiro IDE and want the same setup, add this to your `~/.kiro/settings/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "bedrock-agentcore-mcp-server": {
+      "command": "uvx",
+      "args": ["awslabs.amazon-bedrock-agentcore-mcp-server@latest"],
+      "env": { "FASTMCP_LOG_LEVEL": "ERROR" },
+      "disabled": false,
+      "autoApprove": ["search_agentcore_docs", "manage_agentcore_runtime"]
+    }
+  }
+}
+```
+
+Note: `uvx` is part of the `uv` Python package manager. Install it with:
+```bash
+pip install uv
+```
+
+This config is not required to run the DevOps assistant — it is only needed if you want Kiro IDE to have AgentCore-aware assistance while working on this project.
